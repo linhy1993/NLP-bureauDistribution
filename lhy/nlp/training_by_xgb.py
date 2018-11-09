@@ -1,122 +1,153 @@
 from tfidf_use import tfidf
 import xgboost as xgb
 import numpy as np
-from sklearn.decomposition import PCA
 import time
-import data
 import csv
-from scipy.sparse import csr_matrix
 import pickle
+import data
 
 DEBUG = True
-name_row = []
-training_label = []
-training_data = []
-test_label = []
-test_data = []
-start_time = time.perf_counter()
-with open('testset_with_label.csv', 'r') as db01:
-    reader = csv.reader(db01)
-    row_count = sum(1 for row in reader)
-    db01.close()
-
-with open('testset_with_label.csv', 'r') as db01:
-    reader = csv.reader(db01)
-    for i,row in enumerate(reader):
-        if i == 1:
-            name_row.append(row)
-        elif i > 2 and i < 103:
-            #get tfidf
-            temp = tfidf.get_instance_tfidf_vector(str(row[0]))
-            temp.extend(row[11:])
-
-            training_label.append(int(row[10]))
-            training_data.append(temp)
-
-            del temp
-
-#         if (row_count - i) < 4001:
-#
-#             temp = tfidf.get_instance_tfidf_vector(str(row[0]))
-#             temp.extend(row[11:])
-#
-#             test_label.append(int(row[10]))
-#             test_data.append(temp)
-# if DEBUG:
-#     print(len(test_label))
-
-# with open('test_label.pickle', 'wb') as f:
-# 	pickle.dump(test_label, f, pickle.HIGHEST_PROTOCOL)
-# with open('test_data.pickle', 'wb') as f:
-# 	pickle.dump(test_data, f, pickle.HIGHEST_PROTOCOL)
-
-# Test data is last 4k data
-test_label = data.read_pickle('test_label.pickle')
-test_data = data.read_pickle('test_data.pickle')
-
-test_data_array = np.array(test_data, dtype=float, ndmin=2)
-test_label_array = np.array(test_label, dtype=int).reshape(4000, 1)
-
-end_time = time.perf_counter()
-print('Finish {} s'.format(end_time - start_time))
-#down sample
-# pca = PCA(n_components=12)
-# training_data = pca.fit_transform(training_data)
-#array
-data = np.array(training_data, dtype=float, ndmin=2)
-label = np.array(training_label, dtype=int).reshape(len(training_data),1)
 
 
-del training_data
+def train_by_xgb(train_X_array, train_Y_array, test_X_array, test_Y_array, model_name, version):
+    print('start training ')
+    xg_train = xgb.DMatrix(train_X_array, label = train_Y_array)
+    xg_test = xgb.DMatrix(test_X_array,label = test_Y_array)
 
-training_ratio = int(0.8 * label.shape[0])
-# print(training_ratio)
+    param = {}
+    # use softmax multi-class classification
+    param['objective'] = 'multi:softmax'
+    # scale weight of positive examples
+    param['eta'] = 0.1
+    param['max_depth'] = 5
+    param['silent'] = 1
+    param['num_class'] = 6
 
-train_X_array = data[:training_ratio, :]
-train_Y_array = label[:training_ratio, :]
-test_X_array= data[training_ratio:, :]
-test_Y_array = label[training_ratio:, :]
+    watchlist = [ (xg_train,'eval'), (xg_test, 'test') ]
+    num_round = 5
 
-if DEBUG:
+    if version == 1:
+        model = xgb.train(param, xg_train, num_round, watchlist)
+        model.save_model('{}{}.model'.format(model_name, version))
+    elif version == 2:
+        model = xgb.train(param, xg_train, num_round, watchlist, xgb_model='{}{}.model'.format(model_name,version - 1))
+        model.save_model('{}{}.model'.format(model_name,version))
+    elif version == 3:
+        model = xgb.train(param, xg_train, num_round, watchlist, xgb_model='{}{}.model'.format(model_name,version - 1))
+        model.save_model('{}{}.model'.format(model_name,version))
+    elif version == 4:
+        model = xgb.train(param, xg_train, num_round, watchlist, xgb_model='{}{}.model'.format(model_name,version - 1))
+        model.save_model('{}{}.model'.format(model_name,version))
 
-    print(train_X_array.shape)
-    print(train_Y_array.shape)
-    print(test_X_array.shape)
-    print(test_Y_array.shape)
 
-# #start training
-print('Start training')
-xg_train = xgb.DMatrix(train_X_array, label = train_Y_array)
-xg_test = xgb.DMatrix(test_X_array, label = test_Y_array)
 
-param = {}
-# use softmax multi-class classification
-param['objective'] = 'multi:softmax'
-# scale weight of positive examples
-param['eta'] = 0.1
-param['max_depth'] = 5
-param['silent'] = 1
-param['num_class'] = 6
+def main(test_data, test_label):
 
-watchlist = [ (xg_train,'train_1'), (xg_test, 'test') ]
-num_round = 5
-# model_1 = xgb.train(param, xg_train, num_round, watchlist )
-# model_1.save_model('model_1.model')
+    name_row = []
+    training_label1 = []
+    training_label2 = []
+    training_label3 = []
+    training_label4 = []
 
-#train
-model_2 = xgb.train(param, xg_train, num_round, watchlist, xgb_model='model_5.model')
-model_2.save_model('model_final.model')
+    training_data1 = []
+    training_data2 = []
+    training_data3 = []
+    training_data4 = []
+    start_time = time.perf_counter()
 
-# # get prediction
-pred = model_2.predict( xg_test )
-print ('predicting, classification error=%f' % (sum( int(pred[i]) != test_Y_array[i] for i in range(len(test_Y_array))) / float(len(test_Y_array)) ))
-#
-# param['objective'] = 'multi:softprob'
-# bst = xgb.train(param, xg_train, num_round, watchlist)
-# yprob = bst.predict( xg_test ).reshape( test_Y_array.shape[0], 6)
-# ylabel = np.argmax(yprob, axis=1)  # return the index of the biggest pro
-#
-# print ('predicting, classification error=%f' % (sum( int(ylabel[i]) != test_Y_array[i] for i in range(len(test_Y_array))) / float(len(test_Y_array)) ))
-#
+    with open('testset_with_label.csv', 'r') as db01:
+        reader = csv.reader(db01)
+        for i, row in enumerate(reader):
+            if i == 1:
+                name_row.append(row)
+            elif i > 2 and i < 10003:
+                # get tfidf
+                temp = tfidf.get_instance_tfidf_vector(str(row[0]))
+                temp.extend(row[11:])
+
+                training_label1.append(int(row[10]))
+                training_data1.append(temp)
+
+                del temp
+            elif i > 10003 and i < 20004:
+                # get tfidf
+                temp = tfidf.get_instance_tfidf_vector(str(row[0]))
+                temp.extend(row[11:])
+
+                training_label2.append(int(row[10]))
+                training_data2.append(temp)
+            elif i > 20005 and i < 30006:
+                # get tfidf
+                temp = tfidf.get_instance_tfidf_vector(str(row[0]))
+                temp.extend(row[11:])
+
+                training_label3.append(int(row[10]))
+                training_data3.append(temp)
+
+            elif i > 30006:
+                # get tfidf
+                temp = tfidf.get_instance_tfidf_vector(str(row[0]))
+                temp.extend(row[11:])
+
+                training_label4.append(int(row[10]))
+                training_data4.append(temp)
+
+    # Test data is last 4k data
+    test_data_array = np.array(test_data, dtype=float, ndmin=2)
+    test_label_array = np.array(test_label, dtype=int).reshape(4000, 1)
+
+    end_time = time.perf_counter()
+    print('Finish {} s'.format(end_time - start_time))
+    # array
+    data1 = np.array(training_data1, dtype=float, ndmin=2)
+    label1 = np.array(training_label1, dtype=int).reshape(len(training_data1), 1)
+
+    del training_data1
+    del training_label1
+
+    data2 = np.array(training_data2, dtype=float, ndmin=2)
+    label2 = np.array(training_label2, dtype=int).reshape(len(training_data2), 1)
+
+    del training_data2
+    del training_label2
+
+    data3 = np.array(training_data3, dtype=float, ndmin=2)
+    label3 = np.array(training_label3, dtype=int).reshape(len(training_data3), 1)
+
+    del training_data3
+    del training_label3
+
+    data4 = np.array(training_data4, dtype=float, ndmin=2)
+    label4 = np.array(training_label4, dtype=int).reshape(len(training_data4), 1)
+
+    del training_data4
+    del training_label4
+
+    test_X_array = test_data_array
+    test_Y_array = test_label_array
+
+    train_X_array = data1
+    train_Y_array = label1
+    train_by_xgb(train_X_array, train_Y_array, test_X_array, test_Y_array, 'model_v', 1)
+
+    train_X_array = data2
+    train_Y_array = label2
+    train_by_xgb(train_X_array, train_Y_array, test_X_array, test_Y_array, 'model_v', 2)
+
+    train_X_array = data3
+    train_Y_array = label3
+    train_by_xgb(train_X_array, train_Y_array, test_X_array, test_Y_array, 'model_v', 3)
+
+    train_X_array = data4
+    train_Y_array = label4
+    train_by_xgb(train_X_array, train_Y_array, test_X_array, test_Y_array, 'model_v', 4)
+
+
+
+if __name__ == '__main__':
+    test_label = data.read_pickle('test_label.pickle')
+    test_data = data.read_pickle('test_data.pickle')
+    main(test_data, test_label)
+
 
 
